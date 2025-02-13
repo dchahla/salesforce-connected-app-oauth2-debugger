@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Salesforce OAuth Debugger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .scroll-container {
+            height: 80vh;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        .section-title {
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+
+        .small-input {
+            width: 100%;
+            margin-top: 0.25rem;
+        }
+
+        .oauth-params {
+            border: 1px solid #eee;
+            background: #f9fafb;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .help-content {
+            padding: 0.75rem;
+            background: #f1f5f9;
+            border-left: 4px solid #93c5fd;
+            margin: 0.5rem 0;
+        }
+
+        .dropdown,
+        .multi-select {
+            margin-top: 0.25rem;
+            border: 1px solid #ccc;
+            background: #fff;
+            padding: 0.25rem;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+    <div class="w-full max-w-4xl border border-gray-300 shadow-lg rounded-lg overflow-hidden bg-white">
+        <table class="w-full">
+            <tbody id="conversationTable" class="scroll-container"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const ws = new WebSocket('ws://' + window.location.host);
+        const conversationTable = document.getElementById('conversationTable');
+        let storedOAuthParams = {};
+        let storedOIDCMetadata = {};
+
+        // Utility for PKCE
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(digest));
+            const base64Raw = btoa(String.fromCharCode(...hashArray))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+            return base64Raw;
+        }
+
+        function generateRandomString(length = 64) {
+            const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+            let result = '';
+            const randomValues = new Uint32Array(length);
+            crypto.getRandomValues(randomValues);
+            for (let i = 0; i < length; i++) {
+                result += charset[randomValues[i] % charset.length];
+            }
+            return result;
+        }
+
+        function createNewRow(promptText = "Enter a URL or text") {
+            const row = document.createElement('tr');
+            const formTd = document.createElement('td');
+            formTd.className = "w-1/2 p-4 align-top";
+
+            const input = document.createElement('input');
+            input.type = "text";
+            input.className = "border p-2 w-full";
+            input.placeholder = promptText;
+
+            const button = document.createElement('button');
+            button.className = "bg-blue-500 text-white px-4 py-2 rounded mt-2 w-full";
+            button.textContent = "Send";
+            button.onclick = () => sendRequest(input, responseTd);
+
+            formTd.appendChild(input);
+            formTd.appendChild(button);
+
+            const responseTd = document.createElement('td');
+            responseTd.className = "w-1/2 p-4 align-top bg-gray-200";
+            const time = new Date().getTime()
+            localStorage.setItem('lt', time)
+            responseTd.innerHTML = "<p id=" + `${time}` + ">Waiting for response...</p>";
+
+            row.appendChild(formTd);
+            row.appendChild(responseTd);
+            conversationTable.appendChild(row);
+
+            return row;
+        }
+
+        // Helper UI for final code exchange (we paste the code from redirect)
+        function createFetchTokenRow() {
+            const row = document.createElement('tr');
+            const formTd = document.createElement('td');
+            formTd.className = "w-full p-4 align-top";
+            formTd.colSpan = 2;
+
+            const container = document.createElement('div');
+            container.className = "oauth-params";
+
+            container.innerHTML = `
+                <div class="section-title">Exchange Code for Token</div>
+                <p class="text-sm text-gray-600 mb-2">Paste the 'code' you received in the redirect URL below.</p>
+
+                <label>Code
+                  <input id="authCode" class="small-input border p-1" placeholder="Paste code from redirect" />
+                </label><br/>
+
+                <button id="exchangeBtn" class="bg-blue-500 text-white px-4 py-2 rounded mt-2">Exchange for Token</button>
+            `;
+
+            formTd.appendChild(container);
+            row.appendChild(formTd);
+            conversationTable.appendChild(row);
+
+            const exchangeBtn = container.querySelector('#exchangeBtn');
+            exchangeBtn.onclick = () => {
+                const codeInput = container.querySelector('#authCode');
+                const codeVal = codeInput.value.trim();
+                if (!codeVal) {
+                    alert('Please paste the code from the redirect URL');
+                    return;
+                }
+
+
+                // Build a JSON object to send to server
+                const fetchTokenPayload = {
+                    code: codeVal,
+                    code_verifier: storedOAuthParams.codeVerifier || '',
+                    token_url: storedOAuthParams.tokenUrl || '',
+                    client_id: storedOAuthParams.clientId || '',
+                    client_secret: storedOAuthParams.clientSecret || '',
+                    redirect_uri: storedOAuthParams.callbackUrl || ''
+                };
+
+                const msg = 'fetch_token=' + JSON.stringify(fetchTokenPayload);
+                ws.send(msg);
+            };
+        }
+
+        // Helper to show a secondary input for OAuth + PKCE flow parameters
+        function createOAuthConfigRow() {
+            const row = document.createElement('tr');
+            const formTd = document.createElement('td');
+            formTd.className = "w-full p-4 align-top";
+            formTd.colSpan = 2;
+
+            const container = document.createElement('div');
+            container.className = "oauth-params";
+
+            let responseTypeOptions = "";
+            if (storedOIDCMetadata.response_types_supported) {
+                storedOIDCMetadata.response_types_supported.forEach(rt => {
+                    responseTypeOptions += `<option value="${rt}">${rt}</option>`;
+                });
+            } else {
+                responseTypeOptions = `<option value="code">code</option>`;
+            }
+
+            let scopeOptions = "";
+            if (storedOIDCMetadata.scopes_supported) {
+                storedOIDCMetadata.scopes_supported.forEach(sc => {
+                    scopeOptions += `<option value="${sc}">${sc}</option>`;
+                });
+            } else {
+                scopeOptions = `<option value="api">api</option>`;
+            }
+
+            const discoveryNote = (storedOIDCMetadata.authorization_endpoint || storedOIDCMetadata.token_endpoint)
+                ? `<p class="text-xs text-blue-600 mb-1">We discovered these endpoints from the .well-known URL. You can override them if needed.</p>`
+                : "";
+
+            container.innerHTML = `
+                <div class="section-title">Salesforce OAuth2 / PKCE Parameters</div>
+                ${discoveryNote}
+
+                <!-- Callback URL notice -->
+                <p class="text-sm text-gray-600 mb-2">Be sure the callback URL matches what you set in your Connected App.</p>
+                <label>Callback URL (must match Connected App):
+                  <input id="callbackUrl" class="small-input border p-1" placeholder="http://localhost:3000/callback" value="http://localhost:3000/callback"/>
+                </label><br/>
+
+                <label>Client ID
+                  <input id="clientId" class="small-input border p-1" placeholder="Enter Client ID" />
+                </label><br/>
+
+                <label>Client Secret (Optional)
+                  <input id="clientSecret" class="small-input border p-1" placeholder="Enter Client Secret" />
+                </label><br/>
+
+                <label>Authorization URL
+                  <input id="authUrl" class="small-input border p-1" disabled="${storedOIDCMetadata.authorization_endpoint}" placeholder="${storedOIDCMetadata.authorization_endpoint || 'https://example.my.salesforce.com/services/oauth2/authorize'}" value="${storedOIDCMetadata.authorization_endpoint || 'https://example.my.salesforce.com/services/oauth2/authorize'}"/>
+                </label><br/>
+
+                <label>Token URL
+                  <input id="tokenUrl" class="small-input border p-1" disabled="${storedOIDCMetadata.token_endpoint}" placeholder="${storedOIDCMetadata.token_endpoint || 'https://example.my.salesforce.com/services/oauth2/token'}" value="${storedOIDCMetadata.token_endpoint || 'https://example.my.salesforce.com/services/oauth2/authorize'}"/>
+                </label><br/>
+
+                <label>Response Type
+                  <select id="responseType" class="dropdown">
+                    ${responseTypeOptions}
+                  </select>
+                </label><br/>
+
+                <label>Scopes (multi-select, hold Ctrl/Command)
+                  <select id="scopesSelect" class="multi-select" multiple>
+                    ${scopeOptions}
+                  </select>
+                </label><br/>
+
+                <hr class="my-2" />
+                <div class="section-title">PKCE</div>
+                <label>Code Verifier
+                  <input id="codeVerifier" class="small-input border p-1" placeholder="Auto-generated if left blank" />
+                </label><br/>
+                <label>Code Challenge
+                  <input id="codeChallenge" class="small-input border p-1" placeholder="Will be derived if empty" />
+                </label><br/>
+                <button id="generatePkce" class="bg-gray-500 text-white px-4 py-1 rounded mt-2">Generate PKCE</button>
+                <button id="constructRequest" class="bg-green-500 text-white px-4 py-2 rounded mt-2">Construct Request</button>
+            `;
+
+            formTd.appendChild(container);
+            row.appendChild(formTd);
+            conversationTable.appendChild(row);
+
+            const genPkceBtn = container.querySelector('#generatePkce');
+            genPkceBtn.onclick = async () => {
+                const verifierEl = container.querySelector('#codeVerifier');
+                const challengeEl = container.querySelector('#codeChallenge');
+                let verifier = verifierEl.value.trim();
+                if (!verifier) {
+                    verifier = generateRandomString(64);
+                    verifierEl.value = verifier;
+                }
+                const challenge = await generateCodeChallenge(verifier);
+                challengeEl.value = challenge;
+            };
+
+            // Build the final URL when user clicks "Construct Request"
+            const constructBtn = container.querySelector('#constructRequest');
+            constructBtn.onclick = () => {
+                const scopesEl = container.querySelector('#scopesSelect');
+                const selectedScopes = Array.from(scopesEl.selectedOptions).map(o => o.value);
+
+                storedOAuthParams.callbackUrl = container.querySelector('#callbackUrl').value;
+                storedOAuthParams.clientId = container.querySelector('#clientId').value;
+                storedOAuthParams.clientSecret = container.querySelector('#clientSecret').value;
+                storedOAuthParams.authUrl = container.querySelector('#authUrl').value;
+                storedOAuthParams.tokenUrl = container.querySelector('#tokenUrl').value;
+                storedOAuthParams.responseType = container.querySelector('#responseType').value;
+                storedOAuthParams.scope = selectedScopes.join(' ');
+                storedOAuthParams.codeVerifier = container.querySelector('#codeVerifier').value;
+                storedOAuthParams.codeChallenge = container.querySelector('#codeChallenge').value;
+
+                const p = storedOAuthParams;
+                let authLink = p.authUrl || 'https://example.my.salesforce.com/services/oauth2/authorize';
+
+                const queryParams = new URLSearchParams({
+                    response_type: p.responseType || 'code',
+                    client_id: p.clientId || '',
+                    redirect_uri: p.callbackUrl || '',
+                });
+
+                if (p.scope) {
+                    queryParams.set('scope', p.scope);
+                }
+
+                if (p.codeChallenge) {
+                    queryParams.set('code_challenge', p.codeChallenge);
+                    queryParams.set('code_challenge_method', 'S256');
+                }
+
+                const finalUrl = authLink + '?' + queryParams.toString();
+
+                // Show a clickable link below
+                const linkContainer = document.createElement('div');
+                linkContainer.className = 'mt-2';
+
+                const anchor = document.createElement('a');
+                anchor.href = finalUrl;
+                anchor.target = '_blank';
+                anchor.textContent = 'Authorize with Salesforce';
+                anchor.className = 'text-blue-500 underline';
+
+                linkContainer.appendChild(anchor);
+                container.appendChild(linkContainer);
+
+                alert('Constructed Authorization Request. Click the link to proceed.');
+
+                // After constructing, show the fetch token row so user can paste code
+                createFetchTokenRow();
+            };
+        }
+
+        function createHelpRow() {
+            const row = document.createElement('tr');
+            const formTd = document.createElement('td');
+            formTd.className = "w-full p-4 align-top";
+            formTd.colSpan = 2;
+
+            const helpContainer = document.createElement('div');
+            helpContainer.className = "help-content";
+
+            helpContainer.innerHTML = `
+                <h2 class="font-bold text-lg">Usage Instructions</h2>
+                <p>Type any of the following commands or actions in the left input:</p>
+                <ul class="list-disc ml-6">
+                    <li><strong>Help</strong> - Show this help text again</li>
+                    <li><strong>Set OAuth</strong> - Display a form to configure Salesforce OAuth2 parameters (PKCE included)</li>
+                    <li><strong>Construct Request</strong> - Build a cURL or request using the saved OAuth2 parameters (for advanced flows)</li>
+                    <li><strong>Any https:// URL</strong> - Attempt a well-known or other GET request, returning JSON or raw data</li>
+                </ul>
+                <p>Example usage:</p>
+                <ul class="list-disc ml-6">
+                    <li>Enter <em>https://example.my.salesforce.com/.well-known/openid-configuration</em> to fetch OIDC metadata</li>
+                    <li>Enter <em>Set OAuth</em> to store your Client ID, Secret, etc. Then click <em>Generate PKCE</em> to produce codeVerifier & codeChallenge if needed.</li>
+                    <li>The <em>Construct Request</em> button in the config UI will build the final authorization URL link.</li>
+                    <li>After you sign in via that link, paste the <strong>code</strong> in the new row to <strong>Exchange for Token</strong>.</li>
+                </ul>
+            `;
+
+            formTd.appendChild(helpContainer);
+            row.appendChild(formTd);
+            conversationTable.appendChild(row);
+        }
+
+        function sendRequest(inputElement, responseElement) {
+            const inputText = inputElement.value.trim();
+            if (!inputText) return;
+
+            responseElement.innerHTML = "<p>Processing...</p>";
+
+            if (/^help$/i.test(inputText)) {
+                createHelpRow();
+                inputElement.disabled = true;
+                responseElement.innerHTML = "<p>Help displayed below.</p>";
+                createNewRow("Enter next command");
+                return;
+            }
+
+            if (/set oauth/i.test(inputText)) {
+                createOAuthConfigRow();
+                inputElement.disabled = true;
+                responseElement.innerHTML = "<p>OAuth Config UI displayed below.</p>";
+                createNewRow("Enter next command");
+                return;
+            }
+
+            if (/construct request/i.test(inputText)) {
+                let promptData = {
+                    type: 'constructRequest',
+                    oAuthParams: storedOAuthParams
+                };
+                ws.send(JSON.stringify(promptData));
+                inputElement.disabled = true;
+                return;
+            }
+
+            ws.send(inputText);
+            inputElement.disabled = true;
+        }
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            let rows = conversationTable.getElementsByTagName('tr');
+            let lastRow = rows[rows.length - 1];
+            let responseTd = lastRow.children[1];
+            if (!responseTd) {
+                responseTd = document.createElement('td');
+            }
+
+            if (data.renderAsHtml) {
+                responseTd.innerHTML = data.notes;
+            } else {
+                console.log(JSON.stringify(data))
+                localStorage.setItem('lm', JSON.stringify(data))
+                if (localStorage.getItem('lt') && localStorage.getItem('lm')) {
+                    if (document.getElementById(localStorage.getItem('lt'))) {
+                        document.getElementById(localStorage.getItem('lt')).textContent = JSON.stringify(data);
+                    }
+                }
+                responseTd.textContent = JSON.stringify(data);
+            }
+
+            // If we see OIDC metadata in the server response, store it
+            if (data.oidcMetadata) {
+                storedOIDCMetadata = data.oidcMetadata;
+                responseTd.textContent = "OIDC metadata discovered. Displaying the OAuth config UI automatically.";
+                createOAuthConfigRow();
+                createNewRow("Enter next command");
+                syncScroll();
+                return;
+            }
+
+            // If the server returned a tokenResponse, let's display it
+            if (data.tokenResponse) {
+                // We'll dump the JSON in the cell
+                responseTd.textContent = `Access Token Response:\n${JSON.stringify(data.tokenResponse, null, 2)}`;
+            }
+
+            const nextPrompt = data.nextPrompt || "Enter a URL or text";
+            syncScroll();
+            createNewRow(nextPrompt);
+        };
+
+        function syncScroll() {
+            conversationTable.scrollTop = conversationTable.scrollHeight;
+        }
+
+        // Start uuuuuUUUP
+        createNewRow();
+        createHelpRow();
+    </script>
+</body>
+
+</html>

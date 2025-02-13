@@ -33,7 +33,7 @@ node dist/index.js
 #### 3) Click "Generate PKCE"
 ![Generate a PKCE ](https://res.cloudinary.com/dxrtrkhvl/image/authenticated/s--MB_dvMDA--/v1739396074/ef874c8c-e89e-486e-9f98-69e676f8bd99-473c0b64-5c6e-4f92-b64d-38571abfbbb1-21edba31-edb4-4c77-b6f1-22729aac4b14/vjdl6lpfhekdfbuhto1f.png)
 
-#### 4. Authenticate and return to the callback URL (this app listens for http://localhost:3000/callback, this must match your Connected App config. See bottom Set-up.)
+#### 4. Click "Construct Request" and follow the link to authenticate and return to the callback URL (this app listens for http://localhost:3000/callback, this must match your Connected App config. See bottom Set-up.)
 ![authorize](https://res.cloudinary.com/dxrtrkhvl/image/authenticated/s--ve-KIpR1--/v1739403833/ef874c8c-e89e-486e-9f98-69e676f8bd99-473c0b64-5c6e-4f92-b64d-38571abfbbb1-21edba31-edb4-4c77-b6f1-22729aac4b14/dugxz8rrj709ckbcvlay.png)
 
 #### 5. Paste the code and click 'Exchange for Token'.

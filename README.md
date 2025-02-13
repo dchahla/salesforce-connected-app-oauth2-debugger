@@ -14,9 +14,11 @@ Key features include:
 Run it locally to streamline your Salesforce OAuth2 connection settings and configuration.
 
 #### TO RUN LOCALLY :
-```npm i
+```
+npm i
 npx tsc
-node dist/index.js```
+node dist/index.js
+```
 
 
 #### EXAMPLE USAGE..

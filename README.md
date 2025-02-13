@@ -7,7 +7,7 @@ This tool provides an interactive web interface and backend service (running on 
 Key features include:
 - fetching OIDC metadata from your connected app’s well-known endpoint
 - interactive forms to configure OAuth2 parameters (client ID, secret, callback URL, etc.)
-- automatic generation of PKCE code challenges and verifiers
+- automated & offline generation of PKCE code challenges and verifiers
 - constructing authorization URLs and handling callback redirects
 - debugging token requests with raw JSON responses
 

@@ -61,6 +61,8 @@ node dist/index.js
 
 ![App Overview - OAuth Settings](https://res.cloudinary.com/dxrtrkhvl/image/authenticated/s--jGgRGOeZ--/v1739404729/ef874c8c-e89e-486e-9f98-69e676f8bd99-473c0b64-5c6e-4f92-b64d-38571abfbbb1-21edba31-edb4-4c77-b6f1-22729aac4b14/dzj0q4lz00aahr8opzv0.png)
 ####  Required Client Secret Location
+https://help.salesforce.com/s/articleView?id=xcloud.configure_oauth_code_credentials_flow_external_client_apps.htm&type=5#:~:text=If%20you%E2%80%99re%20using%20a%20client%20backend%20to%20implement%20this%20flow%20for%20a%20private%20client%2C%20select%20Require%20Secret%20For%20Web%20Server%20Flow%20and%20Require%20Secret%20for%20Refresh%20Token%20Flow.
+
 ![App Overview Bottom - Required Secret Location](https://res.cloudinary.com/dxrtrkhvl/image/authenticated/s--RZI3sTRx--/v1739405014/ef874c8c-e89e-486e-9f98-69e676f8bd99-473c0b64-5c6e-4f92-b64d-38571abfbbb1-21edba31-edb4-4c77-b6f1-22729aac4b14/a8tuyijxfion2wn21fp8.png)
 
 

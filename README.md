@@ -2,7 +2,7 @@
 
 Finally a community Salesforce guide, that works! A minimalist tool for testing and debugging OAuth2 configurations for Salesforce Connected Apps rapidly.
 
-This tool provides an interactive web interface and backend service (running on port 3000) to help you quickly validate OIDC metadata, construct authorization requests with PKCE support 😲, and exchange authorization codes for tokens. The easily extendable, one-page frontend, styled with Tailwind CSS   <-- 🏓 communicates bidirectionally 🏓 --> with the backend via WebSocket, making it easy to see responses in real-time while keeping data private.
+This tool provides an interactive web interface and backend service (running on port 3000) to help you quickly validate OIDC metadata, construct authorization requests with PKCE support 😲, and exchange authorization codes for tokens. The easily extendable, one-page frontend, styled with Tailwind CSS   <--  communicates bidirectionally without needing to adhere to http timeouts --> with the backend via WebSocket, making it easy to see responses in real-time while keeping data private.
 
 Key features include:
 - fetching OIDC metadata from your connected app’s well-known endpoint

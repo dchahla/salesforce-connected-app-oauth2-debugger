@@ -1,4 +1,4 @@
-# salesforce-connected-app-oauth2-debugger
+# Demystifying Salesforce OIDC
 
 Finally a community Salesforce guide, that works! A minimalist tool for testing and debugging OAuth2 configurations for Salesforce Connected Apps rapidly.
 
